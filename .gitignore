@@ -1,0 +1,10 @@
+artifacts/
+coverage_html/
+target/
+
+*~
+*.profraw
+
+Cargo.lock
+coverage.lcov
+default.profdata
