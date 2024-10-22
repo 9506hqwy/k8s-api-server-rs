@@ -78,7 +78,6 @@ spec:
               key: requestheader-username-headers
               name: extension-apiserver-authentication
         ports:
-        ports:
         - containerPort: 3000
           protocol: TCP
         volumeMounts:
