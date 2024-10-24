@@ -195,6 +195,7 @@ async fn authentication(
 async fn authorization(
     namespace: Option<String>,
     resource: Option<String>,
+    verbs: &str,
     headers: HeaderMap,
     req: Request,
     next: Next,
@@ -218,7 +219,7 @@ async fn authorization(
                 name: Some(resource.unwrap_or_default()),
                 namespace: Some(namespace.unwrap_or_default()),
                 resource: Some(RESOURCE_PLURAL.to_string()),
-                verb: Some(req.method().as_str().to_ascii_lowercase()),
+                verb: Some(verbs.to_string()),
                 version: Some(VERSION.to_string()),
                 ..Default::default()
             }),
@@ -263,7 +264,7 @@ async fn authorization_get(
     req: Request,
     next: Next,
 ) -> impl IntoResponse {
-    authorization(Some(namespace), Some(resource), headers, req, next).await
+    authorization(Some(namespace), Some(resource), "get", headers, req, next).await
 }
 
 async fn authorization_list(
@@ -272,7 +273,7 @@ async fn authorization_list(
     req: Request,
     next: Next,
 ) -> impl IntoResponse {
-    authorization(Some(namespace), None, headers, req, next).await
+    authorization(Some(namespace), None, "list", headers, req, next).await
 }
 
 async fn api_resources() -> impl IntoResponse {
