@@ -2,6 +2,18 @@
 
 ## Sample Exntesion API Server
 
+Build container image.
+
+```sh
+buildah bud --format=docker -t <Extension API Server Image Path> -f sample-api-server/Dockerfile .
+```
+
+Push container image.
+
+```sh
+podman push <Extension API Server Image Path>
+```
+
 Create namespace.
 
 ```sh
