@@ -11,16 +11,17 @@ use futures_util::future::BoxFuture;
 use k8s_openapi::api::authorization::v1::{
     ResourceAttributes, SubjectAccessReview, SubjectAccessReviewSpec,
 };
+use k8s_openapi::api::core::v1::ConfigMap;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIResource, APIResourceList, ListMeta};
 use kube::api::{Api, PostParams};
 use kube::{Client, CustomResource};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::{ServerConfig, WebPkiClientVerifier};
 use rustls::RootCertStore;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -52,9 +53,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut sigterm = unix::signal(SignalKind::terminate())?;
 
-    let acceptor = TrustedAcceptor::new(RustlsAcceptor::new(config()?));
+    let auth = extension_apiserver_authentication().await?;
 
-    let app = router_api().layer(middleware::from_fn(authentication));
+    let acceptor = TrustedAcceptor::new(RustlsAcceptor::new(config(&auth)?));
+
+    let app = router_api()
+        .layer(middleware::from_fn(authentication))
+        .layer(Extension(auth));
 
     log::info!("Starting server.");
     let addr = SocketAddr::from_str("0.0.0.0:3000")?;
@@ -68,6 +73,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+async fn extension_apiserver_authentication() -> Result<ConfigMap, Box<dyn Error>> {
+    let client = Client::try_default().await?;
+
+    let cm: Api<ConfigMap> = Api::namespaced(client, "kube-system");
+    let auth = cm.get("extension-apiserver-authentication").await?;
+
+    Ok(auth)
 }
 
 fn router_api() -> Router {
@@ -91,30 +105,33 @@ fn router_custom_resource() -> Router {
         )
 }
 
-fn allowed_names() -> Vec<String> {
-    value_from_env("ALLOWED_NAMES", &ALLOWED_NAMES)
+fn allowed_names(auth: &ConfigMap) -> Vec<String> {
+    value_from_env(auth, "requestheader-allowed-names", &ALLOWED_NAMES)
 }
 
-fn group(headers: &HeaderMap) -> Option<String> {
-    value_from_header(&group_headers(), headers)
+fn group(auth: &ConfigMap, headers: &HeaderMap) -> Option<String> {
+    value_from_header(&group_headers(auth), headers)
 }
 
-fn group_headers() -> Vec<String> {
-    value_from_env("GROUP_HEADERS", &GROUP_HEADERS)
+fn group_headers(auth: &ConfigMap) -> Vec<String> {
+    value_from_env(auth, "requestheader-group-headers", &GROUP_HEADERS)
 }
 
-fn username(headers: &HeaderMap) -> Option<String> {
-    value_from_header(&username_headers(), headers)
+fn username(auth: &ConfigMap, headers: &HeaderMap) -> Option<String> {
+    value_from_header(&username_headers(auth), headers)
 }
 
-fn username_headers() -> Vec<String> {
-    value_from_env("USERNAME_HEADERS", &USERNAME_HEADERS)
+fn username_headers(auth: &ConfigMap) -> Vec<String> {
+    value_from_env(auth, "requestheader-username-headers", &USERNAME_HEADERS)
 }
 
-fn value_from_env(key: &str, value: &OnceLock<Vec<String>>) -> Vec<String> {
+fn value_from_env(auth: &ConfigMap, key: &str, value: &OnceLock<Vec<String>>) -> Vec<String> {
     value
         .get_or_init(|| {
-            let value = env::var(key).unwrap_or_default();
+            let value = match &auth.data {
+                Some(v) => v.get(key).cloned().unwrap_or_default(),
+                _ => "".to_string(),
+            };
             log::info!("{key}: {value}");
             if value.is_empty() {
                 vec![]
@@ -137,12 +154,16 @@ fn value_from_header(keys: &Vec<String>, headers: &HeaderMap) -> Option<String> 
     None
 }
 
-fn config() -> Result<RustlsConfig, Box<dyn Error>> {
+fn config(auth: &ConfigMap) -> Result<RustlsConfig, Box<dyn Error>> {
+    let ca = auth
+        .data
+        .as_ref()
+        .map(|v| v.get("requestheader-client-ca-file").unwrap())
+        .unwrap();
+    let ca_cert = CertificateDer::from_pem_slice(ca.as_bytes()).unwrap();
+
     let mut cert_store = RootCertStore::empty();
-    // https://docs.rs/rustls-native-certs/latest/rustls_native_certs/fn.load_native_certs.html
-    for cacert in rustls_native_certs::load_native_certs().unwrap() {
-        cert_store.add(cacert)?;
-    }
+    cert_store.add(ca_cert)?;
 
     let client_verifier = WebPkiClientVerifier::builder(Arc::new(cert_store)).build()?;
 
@@ -159,6 +180,7 @@ fn config() -> Result<RustlsConfig, Box<dyn Error>> {
 
 async fn authentication(
     Extension(client_certs): Extension<Vec<CertificateDer<'static>>>,
+    Extension(auth): Extension<ConfigMap>,
     req: Request,
     next: Next,
 ) -> impl IntoResponse {
@@ -183,7 +205,7 @@ async fn authentication(
     let cn = common_name.as_str().unwrap_or_default();
     log::trace!("Client CN={}", cn);
 
-    for name in allowed_names() {
+    for name in allowed_names(&auth) {
         if name.as_str() == cn {
             return next.run(req).await;
         }
@@ -193,6 +215,7 @@ async fn authentication(
 }
 
 async fn authorization(
+    auth: ConfigMap,
     namespace: Option<String>,
     resource: Option<String>,
     verbs: &str,
@@ -208,8 +231,8 @@ async fn authorization(
         );
     }
 
-    let group = group(&headers);
-    let username = username(&headers);
+    let group = group(&auth, &headers);
+    let username = username(&auth, &headers);
 
     let data = SubjectAccessReview {
         spec: SubjectAccessReviewSpec {
@@ -259,21 +282,32 @@ async fn authorization(
 }
 
 async fn authorization_get(
+    Extension(auth): Extension<ConfigMap>,
     Path((namespace, resource)): Path<(String, String)>,
     headers: HeaderMap,
     req: Request,
     next: Next,
 ) -> impl IntoResponse {
-    authorization(Some(namespace), Some(resource), "get", headers, req, next).await
+    authorization(
+        auth,
+        Some(namespace),
+        Some(resource),
+        "get",
+        headers,
+        req,
+        next,
+    )
+    .await
 }
 
 async fn authorization_list(
+    Extension(auth): Extension<ConfigMap>,
     Path(namespace): Path<String>,
     headers: HeaderMap,
     req: Request,
     next: Next,
 ) -> impl IntoResponse {
-    authorization(Some(namespace), None, "list", headers, req, next).await
+    authorization(auth, Some(namespace), None, "list", headers, req, next).await
 }
 
 async fn api_resources() -> impl IntoResponse {
