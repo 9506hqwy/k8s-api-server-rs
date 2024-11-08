@@ -1,0 +1,14 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.sample-api-server
+spec:
+  groupPriorityMinimum: 3000
+  versionPriority: 10
+  group: sample-api-server
+  insecureSkipTLSVerify: true
+  service:
+    name: sample-api-server
+    namespace: {{ .Values.namespace }}
+    port: {{ .Values.port }}
+  version: v1alpha1

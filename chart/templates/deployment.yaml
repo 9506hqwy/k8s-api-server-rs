@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-api-server
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: sample-api-server
+  template:
+    metadata:
+      labels:
+        app: sample-api-server
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount }}
+      containers:
+      - name: sample-api-server
+        image: {{ required "A valid image path is required." .Values.imagePath }}
+        env:
+        - name: RUST_LOG
+          value: info
+        ports:
+        - containerPort: {{ .Values.port }}
+          protocol: TCP
