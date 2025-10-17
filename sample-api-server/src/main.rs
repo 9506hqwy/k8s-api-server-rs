@@ -88,7 +88,7 @@ fn router_api() -> Router {
     Router::new()
         .route(&format!("/apis/{GROUP}/{VERSION}"), get(api_resources))
         .nest(
-            &format!("/apis/{GROUP}/{VERSION}/namespaces/:namespace/{RESOURCE_PLURAL}"),
+            &format!("/apis/{GROUP}/{VERSION}/namespaces/{{namespace}}/{RESOURCE_PLURAL}"),
             router_custom_resource(),
         )
 }
@@ -100,7 +100,7 @@ fn router_custom_resource() -> Router {
             get(custom_resources).layer(middleware::from_fn(authorization_list)),
         )
         .route(
-            "/:resource",
+            "/{resource}",
             get(custom_resource).layer(middleware::from_fn(authorization_get)),
         )
 }
