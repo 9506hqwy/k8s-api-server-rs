@@ -5,7 +5,7 @@
 Build container image.
 
 ```sh
-buildah bud --format=docker -t <Extension API Server Image Path> -f sample-api-server/Dockerfile .
+buildah bud -t <Extension API Server Image Path> -f sample-api-server/Dockerfile .
 ```
 
 Push container image.
