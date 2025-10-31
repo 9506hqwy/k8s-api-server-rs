@@ -167,9 +167,9 @@ fn config(auth: &ConfigMap) -> Result<RustlsConfig, Box<dyn Error>> {
 
     let client_verifier = WebPkiClientVerifier::builder(Arc::new(cert_store)).build()?;
 
-    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(&[FQDN.to_string()])?;
+    let CertifiedKey { cert, signing_key } = generate_simple_self_signed(&[FQDN.to_string()])?;
     let server_cert = CertificateDer::from(cert);
-    let server_key = PrivateKeyDer::try_from(key_pair.serialize_der())?;
+    let server_key = PrivateKeyDer::try_from(signing_key.serialize_der())?;
 
     let config = ServerConfig::builder()
         .with_client_cert_verifier(client_verifier)
