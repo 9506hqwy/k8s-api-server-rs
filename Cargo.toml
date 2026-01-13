@@ -1,14 +1,12 @@
 [workspace]
 resolver = "3"
-members = [
-  "sample-api-server"
-]
+members = ["sample-api-server"]
 
 [workspace.package]
 version = "0.2.0"
 authors = ["9506hqwy"]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 repository = "https://github.com/9506hqwy/k8s-api-server-rs"
 license = "MIT OR Apache-2.0"
 

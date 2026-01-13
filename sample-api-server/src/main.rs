@@ -203,7 +203,7 @@ async fn authentication(
     };
 
     let cn = common_name.as_str().unwrap_or_default();
-    log::trace!("Client CN={}", cn);
+    log::trace!("Client CN={cn}");
 
     for name in allowed_names(&auth) {
         if name.as_str() == cn {
